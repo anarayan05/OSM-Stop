@@ -25,19 +25,13 @@ tags = {
     'amenity': ['hospital','school', 'university']
 }
 
-#how each tage is weighted
-tag_score = {
-    'building: apartments': 5,
-    'building: supermarket': 5,
-    'landuse: commercial': 6,
-    'railway: station': 9,
-    'amenity: hospital': 7,
-    'amenity: school': 7,
-    'amenity: university': 8
-}
+tag_cols = ['building', 'landuse', 'railway', 'amenity']
 
 features = ox.features_from_place(place, tags)
 features = features.to_crs(epsg=3857)
+
+#making all features in point form (for now)
+features.geometry = features.geometry.representative_point()
 
 #this returns all features within the 300m distance of a node
 #if node has multiple features, there will be row for each feature
@@ -49,36 +43,30 @@ features_around_node = gpd.sjoin(
     predicate='intersects'
 )
 
-#dropping rows where all columns nan
-features_around_node = features_around_node.dropna(axis=1, how="all")
-print(features_around_node)
+#dropping rows where all tag columns nan
+features_around_node = features_around_node.dropna(subset=tag_cols, how='all')
 
-
-#matching feature keys and values to tags
-#to get score
-
-#consider filtering highway nodes
-
-def calculateScore(features, node_id):
-    score = bc[node_id] * 4 #initializing with centrality score
-    for idx, row in features.iterrows():
-        key = row.idx[1] #grabs the type of feature
-        value = row.iloc[1] #value of of the type
-        if(key in tags.keys()):
-            if(value in tags[key]):
-                score+=tag_score[key+': '+value]
+#weighting and scoring each tag value pair in a series (row)
+def score_agg(series):
+    score = bc[series.name]
+    if(series['building'] == "apartments"):
+        score+=5
+    elif(series['building'] == "supermarket"):
+        score+=5
+    elif(series['landuse'] == "commercial"):
+        score+=6
+    elif(series['railway'] == "station"):
+        score+=9
+    elif(series['amenity'] == "hospital"):
+        score+=7
+    elif(series['amenity'] == "school"):
+        score+=7
+    elif(series['amenity'] == "university"):
+        score+=8
     return score
 
-node_score_dict = {}       
+#calculating score of row based on tags and applying in new column
+features_around_node['node_score'] = features_around_node.apply(score_agg, axis=1)
 
-# for idx, row in gdf_nodes.iterrows():
-#     lat = row['y']
-#     long = row['x']
-#     point = (lat, long)
-#     try:
-#         nearest_features = ox.features.features_from_point(point, tags, dist=300) #nearest features from tags to each node
-#         score = calculateScore(nearest_features, idx)
-#         node_score_dict[idx] = score
-#         print(f"{point}: {score}")
-#     except ox._errors.InsufficientResponseError as e:
-#         print("Did not find any features nearby")
+#grouping rows by node id, summing the scores for each id
+grouped_score = features_around_node.groupby(level=0)['node_score'].sum()
