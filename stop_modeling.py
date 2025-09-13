@@ -3,6 +3,8 @@ import networkx as nx
 import pandas as pd
 import geopandas as gpd
 
+#TASKS: Devise better scoring system
+
 place = "Emeryville, California, USA"
 
 G = ox.graph.graph_from_place(place, network_type="drive") #downloads street network
@@ -46,7 +48,7 @@ features_around_node = gpd.sjoin(
 #dropping rows where all tag columns nan
 features_around_node = features_around_node.dropna(subset=tag_cols, how='all')
 
-#weighting and scoring each tag value pair in a series (row)
+#weighting and scoring each tag value pair in a row
 def score_agg(series):
     score = bc[series.name]
     if(series['building'] == "apartments"):
@@ -69,4 +71,19 @@ def score_agg(series):
 features_around_node['node_score'] = features_around_node.apply(score_agg, axis=1)
 
 #grouping rows by node id, summing the scores for each id
-grouped_score = features_around_node.groupby(level=0)['node_score'].sum()
+grouped_score = features_around_node.groupby(features_around_node.index)['node_score'].sum()
+for node in grouped_score.keys():
+    print()
+#normalizing scores
+grouped_score = (grouped_score - grouped_score.min()) / (grouped_score.max() - grouped_score.min())
+
+node_colors = []
+for node in G.nodes:
+    node_colors.append((grouped_score.get(node, 0), 0, 0))
+
+#plot nodes with corresponding normalized scores as colors
+fig, ax = ox.plot_graph(
+    G,
+    node_color=node_colors,
+    bgcolor="white"
+)
